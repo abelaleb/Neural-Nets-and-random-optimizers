@@ -1,57 +1,69 @@
+# backprop.py
 import numpy as np
 
-""" 
-Highlight: This is Vanilla Batch Gradient Descent
-In this implementation, we update the parameters using the basic gradient descent rule:
-parameter = parameter - learning_rate * gradient
-This is applied to the entire training set (batch) in each epoch, making it Batch Gradient Descent (GD).
-How it works: The gradients (dW, db) are computed as the average over all training examples, then scaled by a fixed learning rate.
-To arrive at this: Start from the loss function, compute partial derivatives w.r.t. each parameter using chain rule (backprop), then apply the update rule.
-Strengths: Simple, stable updates since it uses the full dataset.
-Weaknesses: Slow for large datasets (computes full pass each time), can converge slowly or get stuck in plateaus/saddle points.
-For teaching optimizers: This is the baseline. To improve, you could:
-- Use Mini-batch GD: Split data into batches, update per batch for faster, noisier updates (enables stochasticity for better generalization).
-- Add Momentum: Introduce velocity term to accelerate in consistent directions.
-- Use Adaptive methods like Adam: Adapt lr per parameter based on first/second moments of gradients for faster convergence on sparse/high-dim data.
+"""
+Vanilla Batch Gradient Descent with:
+- Cross-entropy loss
+- L2 regularization
+- Inverted Dropout (applied in forward; here we mask gradients)
+
+Update rule per epoch (full batch):
+    param := param - learning_rate * grad
 """
 
-# Backward propagation with L2 regularization
-def backward_propagation(X, y, Z1, A1, Z2, A2, Z3, A3, Z4, A4,
-                         W1, b1, W2, b2, W3, b3, W4, b4, learning_rate, lambda_reg):
+def backward_propagation(
+    X, y,
+    Z1, A1, Z2, A2, Z3, A3, Z4, A4,
+    W1, b1, W2, b2, W3, b3, W4, b4,
+    learning_rate, lambda_reg,
+    dropout_masks=None
+):
+    """
+    dropout_masks: tuple of masks (M1, M2, M3) used on A1, A2, A3 during forward pass,
+                   or None if dropout disabled. Inverted dropout is used, so simply
+                   multiply dA by the same mask.
+    """
     m = X.shape[0]
 
-    # Cross-entropy loss
-    cross_entropy_loss = -np.sum(np.log(A4[np.arange(m), y] + 1e-15)) / m
+    # ----- Loss (cross-entropy + L2) -----
+    # Small epsilon to avoid log(0)
+    eps = 1e-15
+    ce = -np.sum(np.log(A4[np.arange(m), y] + eps)) / m
+    reg = (lambda_reg / (2 * m)) * (np.sum(W1**2) + np.sum(W2**2) + np.sum(W3**2) + np.sum(W4**2))
+    loss = ce + reg
 
-    # L2 regularization term
-    reg_term = (lambda_reg / (2 * m)) * (np.sum(W1**2) + np.sum(W2**2) + np.sum(W3**2) + np.sum(W4**2))
-    loss = cross_entropy_loss + reg_term
-
-    # Output layer gradients
+    # ----- Output layer -----
     dZ4 = A4.copy()
-    dZ4[np.arange(m), y] -= 1
-    dW4 = np.dot(A3.T, dZ4) / m + (lambda_reg / m) * W4
+    dZ4[np.arange(m), y] -= 1                 # dL/dZ4
+    dW4 = (A3.T @ dZ4) / m + (lambda_reg / m) * W4
     db4 = np.sum(dZ4, axis=0, keepdims=True) / m
 
-    # Third hidden layer gradients
-    dA3 = np.dot(dZ4, W4.T)
-    dZ3 = dA3 * (Z3 > 0)
-    dW3 = np.dot(A2.T, dZ3) / m + (lambda_reg / m) * W3
+    # ----- Hidden 3 -----
+    dA3 = dZ4 @ W4.T                          # dL/dA3
+    # apply dropout mask (inverted dropout)
+    if dropout_masks is not None and dropout_masks[2] is not None:
+        dA3 *= dropout_masks[2]
+    dZ3 = dA3 * (Z3 > 0)                      # ReLU'
+    dW3 = (A2.T @ dZ3) / m + (lambda_reg / m) * W3
     db3 = np.sum(dZ3, axis=0, keepdims=True) / m
 
-    # Second hidden layer gradients
-    dA2 = np.dot(dZ3, W3.T)
+    # ----- Hidden 2 -----
+    dA2 = dZ3 @ W3.T
+    if dropout_masks is not None and dropout_masks[1] is not None:
+        dA2 *= dropout_masks[1]
     dZ2 = dA2 * (Z2 > 0)
-    dW2 = np.dot(A1.T, dZ2) / m + (lambda_reg / m) * W2
+    dW2 = (A1.T @ dZ2) / m + (lambda_reg / m) * W2
     db2 = np.sum(dZ2, axis=0, keepdims=True) / m
 
-    # First hidden layer gradients
-    dA1 = np.dot(dZ2, W2.T)
+    # ----- Hidden 1 -----
+    dA1 = dZ2 @ W2.T
+    if dropout_masks is not None and dropout_masks[0] is not None:
+        dA1 *= dropout_masks[0]
     dZ1 = dA1 * (Z1 > 0)
-    dW1 = np.dot(X.T, dZ1) / m + (lambda_reg / m) * W1
+    dW1 = (X.T @ dZ1) / m + (lambda_reg / m) * W1
     db1 = np.sum(dZ1, axis=0, keepdims=True) / m
 
-    # Update parameters
+    # ----- Update -----
     W1 -= learning_rate * dW1
     b1 -= learning_rate * db1
     W2 -= learning_rate * dW2
