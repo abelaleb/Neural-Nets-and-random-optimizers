@@ -46,13 +46,12 @@ history, (W1, b1, W2, b2, W3, b3, W4, b4) = train(
     X_train, y_train,
     W1, b1, W2, b2, W3, b3, W4, b4,
     epochs=300,
-    learning_rate=0.05,
-    lambda_reg=1e-3,                  # L2 regularization strength
-    keep_probs=(0.9, 0.9, 0.9),       # Dropout keep probabilities for the 3 hidden layers
+    learning_rate=0.001,           # ← Adam default
+    lambda_reg=1e-3,
+    keep_probs=(0.9, 0.9, 0.9),
     print_every=20,
-    X_val=X_test, y_val=y_test        # optional: track val metrics
+    X_val=X_test, y_val=y_test
 )
-
 # 7) Evaluate on test
 from forwardprop import predict
 y_pred = predict(X_test, W1, b1, W2, b2, W3, b3, W4, b4)
